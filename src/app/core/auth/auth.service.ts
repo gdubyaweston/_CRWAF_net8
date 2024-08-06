@@ -1,15 +1,43 @@
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpHeaders } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
+import { Router } from '@angular/router';
 import { AuthUtils } from 'app/core/auth/auth.utils';
 import { UserService } from 'app/core/user/user.service';
+import { EnvironmentUrlService } from 'app/modules/_services/environment.service';
+import { GlobalFunctionsService } from 'app/modules/_services/global.service';
+import { TokenStorageService } from 'app/modules/_services/token.service';
 import { catchError, Observable, of, switchMap, throwError } from 'rxjs';
+
+const httpOptions = {
+    headers: new HttpHeaders({ 'Content-Type': 'application/json' })
+};
 
 @Injectable({ providedIn: 'root' })
 export class AuthService {
+    
     private _authenticated: boolean = false;
-    private _httpClient = inject(HttpClient);
-    private _userService = inject(UserService);
 
+    _gfs: GlobalFunctionsService = new GlobalFunctionsService();
+
+    /**
+     * Constructor
+     */
+    constructor(
+        private _httpClient: HttpClient,
+        private _userService: UserService,
+        private _envUrl: EnvironmentUrlService,
+        private _rtr: Router,
+        private _ts: TokenStorageService,
+    )
+    {
+        this._gfs.showLog('AuthService', 'constructor', '', null);
+        //this._gfs.allowCall = false;
+    }
+    
+    get baseURLAddress(): string {
+        return this._envUrl.urlAddress; //'https://localhost:6001'; // this._ts.urlAddress;
+    }
+    
     // -----------------------------------------------------------------------------------------------------
     // @ Accessors
     // -----------------------------------------------------------------------------------------------------
@@ -18,11 +46,19 @@ export class AuthService {
      * Setter & getter for access token
      */
     set accessToken(token: string) {
+        this._gfs.showLog('AuthService', 'accessToken', 'saveToken:', token);
+        this._ts.saveToken(token);
         localStorage.setItem('accessToken', token);
     }
 
     get accessToken(): string {
-        return localStorage.getItem('accessToken') ?? '';
+        //return localStorage.getItem('accessToken') ?? '';
+
+        var tkn = this._ts.getToken();
+        var drstr = new Date().toString();
+        this._gfs.showLog('AuthService', 'accessToken', 'getToken:', tkn);
+        this._gfs.showLog('AuthService', 'accessToken', 'getDate:', drstr);
+        return tkn;
     }
 
     // -----------------------------------------------------------------------------------------------------
@@ -35,6 +71,7 @@ export class AuthService {
      * @param email
      */
     forgotPassword(email: string): Observable<any> {
+        this._gfs.showLog('AuthService', 'forgotPassword', 'email:', email);
         return this._httpClient.post('api/auth/forgot-password', email);
     }
 
@@ -44,6 +81,7 @@ export class AuthService {
      * @param password
      */
     resetPassword(password: string): Observable<any> {
+        this._gfs.showLog('AuthService', 'resetPassword', 'password:', password);
         return this._httpClient.post('api/auth/reset-password', password);
     }
 
@@ -53,6 +91,14 @@ export class AuthService {
      * @param credentials
      */
     signIn(credentials: { email: string; password: string }): Observable<any> {
+        this._gfs.showLog('AuthService', 'signIn', '', null);
+        this._gfs.showLog('AuthService', 'signIn', 'this._authenticated:', this._authenticated);
+        this._gfs.showLog('AuthService', 'signIn', 'credentials:', credentials);
+        this._gfs.showLog('AuthService', 'signIn', 'urlAddress:', this.baseURLAddress);
+        
+        var daURL = this.baseURLAddress +  "/api/login/login";
+        this._gfs.showLog('AuthService', 'signIn', 'daUrl:', daURL);
+
         // Throw error, if the user is already logged in
         if (this._authenticated) {
             return throwError('User is already logged in.');
@@ -60,14 +106,16 @@ export class AuthService {
 
         return this._httpClient.post('api/auth/sign-in', credentials).pipe(
             switchMap((response: any) => {
+                this._gfs.showLog('AuthService', 'signIn', 'response:', response);
+
                 // Store the access token in the local storage
-                this.accessToken = response.accessToken;
+                //this.accessToken = response.accessToken;
 
                 // Set the authenticated flag to true
-                this._authenticated = true;
+                //this._authenticated = true;
 
                 // Store the user on the user service
-                this._userService.user = response.user;
+                //this._userService.user = response.user;
 
                 // Return a new observable with the response
                 return of(response);
@@ -75,10 +123,42 @@ export class AuthService {
         );
     }
 
+    validate(userName: string, code: string): Observable<any>
+    {
+        this._gfs.showLog('AuthService', 'validate', 'userName:', userName);
+        this._gfs.showLog('AuthService', 'validate', 'code:', code);
+        
+        var daURL = this.baseURLAddress +  "/api/login/twostep";
+        this._gfs.showLog('AuthService', 'validate', 'daUrl:', daURL);
+        
+        return this._httpClient.post(daURL, { userName: userName, token: code }, httpOptions).pipe(
+            switchMap((response: any) =>
+            {
+                this._gfs.showLog('AuthService', 'validate', 'response:', response);
+                
+                // Store the access token in the local storage
+                this.accessToken = response.data.token;
+
+                // Set the authenticated flag to true
+                this._authenticated = true;
+
+                // Store the user on the user service
+                this._userService.user = response.data.userInfo;
+                              
+
+                // Return a new observable with the response
+                return of(response);
+            }),
+        );
+        
+    }
+
     /**
      * Sign in using the access token
      */
     signInUsingToken(): Observable<any> {
+        this._gfs.showLog('AuthService', 'signInUsingToken', '', null);
+
         // Sign in using the token
         return this._httpClient
             .post('api/auth/sign-in-with-token', {
@@ -117,7 +197,9 @@ export class AuthService {
      * Sign out
      */
     signOut(): Observable<any> {
+        this._gfs.showLog('AuthService', 'signOut', '', null);
         // Remove the access token from the local storage
+        this._ts.signOut();
         localStorage.removeItem('accessToken');
 
         // Set the authenticated flag to false
@@ -138,6 +220,7 @@ export class AuthService {
         password: string;
         company: string;
     }): Observable<any> {
+        this._gfs.showLog('AuthService', 'signUp', 'user:', user);
         return this._httpClient.post('api/auth/sign-up', user);
     }
 
@@ -150,6 +233,7 @@ export class AuthService {
         email: string;
         password: string;
     }): Observable<any> {
+        this._gfs.showLog('AuthService', 'unlockSession', 'credentials:', credentials);
         return this._httpClient.post('api/auth/unlock-session', credentials);
     }
 
@@ -157,6 +241,8 @@ export class AuthService {
      * Check the authentication status
      */
     check(): Observable<boolean> {
+        this._gfs.showLog('AuthService', 'check', '', null);
+        
         // Check if the user is logged in
         if (this._authenticated) {
             return of(true);
